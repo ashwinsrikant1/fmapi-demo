@@ -1,0 +1,1832 @@
+{
+  "datasets": [
+    {
+      "name": "all_model_usage",
+      "displayName": "All Model Usage",
+      "queryLines": [
+        "SELECT\n    u.request_time,\n    DATE(u.request_time) as request_date,\n    u.input_token_count,\n    u.output_token_count,\n    u.input_token_count + u.output_token_count as total_tokens,\n    u.status_code,\n    CASE WHEN u.status_code = 200 THEN 'Success' ELSE 'Error' END as status,\n    u.requester,\n    e.endpoint_name,\n    COALESCE(e.served_entity_name, e.entity_name) as model_name,\n    e.entity_name as model_version,\n    CASE\n        WHEN LOWER(e.entity_name) LIKE '%claude%' OR LOWER(e.endpoint_name) LIKE '%claude%' THEN 'Anthropic'\n        WHEN LOWER(e.entity_name) LIKE '%gpt%' OR LOWER(e.endpoint_name) LIKE '%gpt%' OR LOWER(e.entity_name) LIKE '%openai%' THEN 'OpenAI'\n        WHEN LOWER(e.entity_name) LIKE '%gemini%' OR LOWER(e.endpoint_name) LIKE '%gemini%' THEN 'Google'\n        WHEN LOWER(e.entity_name) LIKE '%llama%' OR LOWER(e.entity_name) LIKE '%meta%' THEN 'Meta'\n        ELSE 'Other'\n    END as provider\nFROM system.serving.endpoint_usage u\nJOIN system.serving.served_entities e\n    ON u.served_entity_id = e.served_entity_id\nWHERE e.entity_type = 'FOUNDATION_MODEL'\n   OR e.external_model_config IS NOT NULL"
+      ]
+    },
+    {
+      "name": "all_model_billing",
+      "displayName": "All Model Billing",
+      "queryLines": [
+        "SELECT\n    usage_date as request_date,\n    usage_metadata.endpoint_name as endpoint_name,\n    CASE\n        WHEN sku_name LIKE '%ANTHROPIC%' THEN 'Anthropic'\n        WHEN sku_name LIKE '%OPENAI%' THEN 'OpenAI'\n        WHEN sku_name LIKE '%GOOGLE%' THEN 'Google'\n        WHEN sku_name LIKE '%META%' OR sku_name LIKE '%LLAMA%' THEN 'Meta'\n        ELSE 'Other'\n    END as provider,\n    sku_name,\n    SUM(usage_quantity) as total_dbus,\n    SUM(usage_quantity * COALESCE(lp.pricing.effective_list.default, 0.07)) as estimated_cost\nFROM system.billing.usage u\nLEFT JOIN system.billing.list_prices lp\n    ON u.sku_name = lp.sku_name\n    AND u.cloud = lp.cloud\n    AND u.usage_start_time >= lp.price_start_time\n    AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)\nWHERE u.sku_name LIKE '%MODEL_SERVING%'\n   OR u.sku_name LIKE '%FOUNDATION_MODEL%'\nGROUP BY usage_date, usage_metadata.endpoint_name, sku_name"
+      ]
+    },
+    {
+      "name": "ai_gateway_usage",
+      "displayName": "AI Gateway Usage",
+      "queryLines": [
+        "SELECT\n    request_time,\n    DATE(request_time) as request_date,\n    endpoint_name,\n    model_name,\n    CASE\n        WHEN LOWER(model_name) LIKE '%claude%' THEN 'Anthropic'\n        WHEN LOWER(model_name) LIKE '%gpt%' THEN 'OpenAI'\n        WHEN LOWER(model_name) LIKE '%gemini%' THEN 'Google'\n        WHEN LOWER(model_name) LIKE '%llama%' THEN 'Meta'\n        ELSE 'Other'\n    END as provider,\n    input_token_count,\n    output_token_count,\n    total_token_count,\n    request_latency_ms,\n    time_to_first_token_ms,\n    status_code,\n    CASE WHEN status_code = 200 THEN 'Success' ELSE 'Error' END as status,\n    requester,\n    routing_information\nFROM system.ai_gateway.usage"
+      ]
+    },
+    {
+      "name": "routing_data",
+      "displayName": "Routing & A/B Tests",
+      "queryLines": [
+        "SELECT\n    request_time,\n    DATE(request_time) as request_date,\n    endpoint_name,\n    model_name,\n    routing_information,\n    routing_information.served_model_name as routed_to,\n    input_token_count,\n    output_token_count,\n    request_latency_ms,\n    status_code,\n    requester\nFROM system.ai_gateway.usage\nWHERE routing_information IS NOT NULL"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "11c65764",
+      "displayName": "Gateway Overview",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "284a7ae9",
+            "queries": [
+              {
+                "name": "filter_284a7ae9_request_date",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "request_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "request_date",
+                    "displayName": "request_date",
+                    "queryName": "filter_284a7ae9_request_date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "481cdee7",
+            "queries": [
+              {
+                "name": "filter_481cdee7_provider",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "provider_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "provider",
+                    "displayName": "provider",
+                    "queryName": "filter_481cdee7_provider"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Provider"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 1,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "8cf5f960",
+            "queries": [
+              {
+                "name": "filter_8cf5f960_endpoint_name",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "endpoint_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "endpoint_name",
+                    "displayName": "endpoint_name",
+                    "queryName": "filter_8cf5f960_endpoint_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Endpoint"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "8c7c71ec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Total Requests"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Requests"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "5cbddf2a",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "sum(input_token_count)",
+                      "expression": "SUM(`input_token_count`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(input_token_count)",
+                  "displayName": "Input Tokens"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Input Tokens"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "b1b22afb",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "sum(output_token_count)",
+                      "expression": "SUM(`output_token_count`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(output_token_count)",
+                  "displayName": "Output Tokens"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Output Tokens"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "4e3aa469",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Unique Users"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unique Users"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "6946ebb3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(*)",
+                  "displayName": "Active Endpoints"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Active Endpoints"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "598907b9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_billing",
+                  "fields": [
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(estimated_cost)",
+                  "displayName": "Est. Cost ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Est. Cost ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 1,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "736bb6bd",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of *"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Requests by Provider"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "e8e5dc31",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_billing",
+                  "fields": [
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "provider"
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SUM of estimated_cost"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost by Provider"
+              },
+              "mark": {
+                "colors": [
+                  "#FF6B35",
+                  "#00A972",
+                  "#4285F4",
+                  "#8BCAE7",
+                  "#919191"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "87e4f2e4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "endpoint_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "endpoint_name"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of *"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Requests by Endpoint"
+              },
+              "mark": {
+                "colors": [
+                  "#FFAB00",
+                  "#00A972",
+                  "#FF3621",
+                  "#8BCAE7",
+                  "#AB4057",
+                  "#99DDB4",
+                  "#FCA4A1",
+                  "#919191",
+                  "#BF7080"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 7,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "dfea3852",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of Records"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Requests by Provider"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "8314822f",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "model_name",
+                      "expression": "`model_name`"
+                    },
+                    {
+                      "name": "sum(total_tokens)",
+                      "expression": "SUM(`total_tokens`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "model_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "model_name"
+                },
+                "y": {
+                  "fieldName": "sum(total_tokens)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SUM of total_tokens"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Token Usage by Model"
+              },
+              "mark": {
+                "colors": [
+                  "#8BCAE7"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 12,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "0273e699",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_billing",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "sum(estimated_cost)",
+                      "expression": "SUM(`estimated_cost`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "sum(estimated_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SUM of estimated_cost"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Estimated Cost ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "1f8ff666",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "all_model_usage",
+                  "fields": [
+                    {
+                      "name": "requester",
+                      "expression": "`requester`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "requester",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "requester"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of *"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Requests by User"
+              },
+              "mark": {
+                "colors": [
+                  "#00A972"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ]
+    },
+    {
+      "name": "ee8c58ea",
+      "displayName": "AI Gateway & Performance",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "a5c5857a",
+            "queries": [
+              {
+                "name": "filter_a5c5857a_request_date",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "request_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "request_date",
+                    "displayName": "request_date",
+                    "queryName": "filter_a5c5857a_request_date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "085635df",
+            "queries": [
+              {
+                "name": "filter_085635df_provider",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    },
+                    {
+                      "name": "provider_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "provider",
+                    "displayName": "provider",
+                    "queryName": "filter_085635df_provider"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Provider"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 1,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "a40a5936",
+            "queries": [
+              {
+                "name": "filter_a40a5936_endpoint_name",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "endpoint_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "endpoint_name",
+                    "displayName": "endpoint_name",
+                    "queryName": "filter_a40a5936_endpoint_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Endpoint"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "4ebf2b1d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "model_name",
+                      "expression": "`model_name`"
+                    },
+                    {
+                      "name": "avg(request_latency_ms)",
+                      "expression": "AVG(`request_latency_ms`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "model_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "model_name"
+                },
+                "y": {
+                  "fieldName": "avg(request_latency_ms)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "AVG of request_latency_ms"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Latency by Model (ms)"
+              },
+              "mark": {
+                "colors": [
+                  "#FF6B35"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "335c9a1a",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "model_name",
+                      "expression": "`model_name`"
+                    },
+                    {
+                      "name": "avg(time_to_first_token_ms)",
+                      "expression": "AVG(`time_to_first_token_ms`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "model_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "model_name"
+                },
+                "y": {
+                  "fieldName": "avg(time_to_first_token_ms)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "AVG of time_to_first_token_ms"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Time to First Token by Model (ms)"
+              },
+              "mark": {
+                "colors": [
+                  "#AB4057"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "794fa693",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of *"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Request Throughput"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "af73fd34",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of Records"
+                },
+                "color": {
+                  "fieldName": "status",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "status"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Success vs Error"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "5b66e179",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "avg(request_latency_ms)",
+                      "expression": "AVG(`request_latency_ms`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "avg(request_latency_ms)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "AVG of request_latency_ms"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Latency Trend (ms)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 10,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "c84211ff",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ai_gateway_usage",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "sum(total_token_count)",
+                      "expression": "SUM(`total_token_count`)"
+                    },
+                    {
+                      "name": "provider",
+                      "expression": "`provider`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "sum(total_token_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SUM of total_token_count"
+                },
+                "color": {
+                  "fieldName": "provider",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "provider"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Token Throughput"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 6,
+            "height": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "b157e153",
+      "displayName": "Routing & A/B Tests",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "b3520b53",
+            "queries": [
+              {
+                "name": "filter_b3520b53_request_date",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "request_date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "request_date",
+                    "displayName": "request_date",
+                    "queryName": "filter_b3520b53_request_date"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "4271f8d7",
+            "queries": [
+              {
+                "name": "filter_4271f8d7_endpoint_name",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "endpoint_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "endpoint_name",
+                    "displayName": "endpoint_name",
+                    "queryName": "filter_4271f8d7_endpoint_name"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Endpoint"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "4c247f1d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "routed_to",
+                      "expression": "`routed_to`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of Records"
+                },
+                "color": {
+                  "fieldName": "routed_to",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "routed_to"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Traffic Split by Served Model"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "d821264b",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "routed_to",
+                      "expression": "`routed_to`"
+                    },
+                    {
+                      "name": "avg(request_latency_ms)",
+                      "expression": "AVG(`request_latency_ms`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "routed_to",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "routed_to"
+                },
+                "y": {
+                  "fieldName": "avg(request_latency_ms)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "AVG of request_latency_ms"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Latency by Routed Model (ms)"
+              },
+              "mark": {
+                "colors": [
+                  "#4285F4",
+                  "#FF6B35"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 1,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "1697ef6d",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "request_date",
+                      "expression": "`request_date`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "routed_to",
+                      "expression": "`routed_to`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "request_date",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "request_date"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "COUNT of *"
+                },
+                "color": {
+                  "fieldName": "routed_to",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "routed_to"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Routing Decisions Over Time"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "00bcde5a",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "routing_data",
+                  "fields": [
+                    {
+                      "name": "request_time",
+                      "expression": "`request_time`"
+                    },
+                    {
+                      "name": "endpoint_name",
+                      "expression": "`endpoint_name`"
+                    },
+                    {
+                      "name": "routed_to",
+                      "expression": "`routed_to`"
+                    },
+                    {
+                      "name": "model_name",
+                      "expression": "`model_name`"
+                    },
+                    {
+                      "name": "request_latency_ms",
+                      "expression": "`request_latency_ms`"
+                    },
+                    {
+                      "name": "input_token_count",
+                      "expression": "`input_token_count`"
+                    },
+                    {
+                      "name": "output_token_count",
+                      "expression": "`output_token_count`"
+                    },
+                    {
+                      "name": "status_code",
+                      "expression": "`status_code`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "request_time",
+                    "type": "datetime",
+                    "displayAs": "datetime",
+                    "title": "Time",
+                    "displayName": "Time",
+                    "order": 100000,
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "endpoint_name",
+                    "type": "string",
+                    "displayAs": "string",
+                    "title": "Endpoint",
+                    "displayName": "Endpoint",
+                    "order": 100001,
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "routed_to",
+                    "type": "string",
+                    "displayAs": "string",
+                    "title": "Routed To",
+                    "displayName": "Routed To",
+                    "order": 100002,
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "model_name",
+                    "type": "string",
+                    "displayAs": "string",
+                    "title": "Model",
+                    "displayName": "Model",
+                    "order": 100003,
+                    "alignContent": "left"
+                  },
+                  {
+                    "fieldName": "request_latency_ms",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "title": "Latency (ms)",
+                    "displayName": "Latency (ms)",
+                    "order": 100004,
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "input_token_count",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "title": "In Tokens",
+                    "displayName": "In Tokens",
+                    "order": 100005,
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "output_token_count",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "title": "Out Tokens",
+                    "displayName": "Out Tokens",
+                    "order": 100006,
+                    "alignContent": "right"
+                  },
+                  {
+                    "fieldName": "status_code",
+                    "type": "integer",
+                    "displayAs": "number",
+                    "title": "Status",
+                    "displayName": "Status",
+                    "order": 100007,
+                    "alignContent": "right"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Routing Decisions Log"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 10,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

@@ -1,0 +1,40 @@
+# Foundation Model API Demo Configuration
+# Copy this file to config.yaml and fill in your values:
+#   cp config.yaml.template config.yaml
+
+# --- Workspace ---
+# Primary workspace (fevm-demo-classic)
+workspace_host: "https://fevm-demo-classic.cloud.databricks.com"
+# Alternative: "https://e2-demo-field-eng.cloud.databricks.com"
+
+databricks_cli_profile: "fevm-demo-classic"
+# Alternative: "e2-demo-field-eng"
+
+# Personal access token (or leave blank to use CLI profile auth)
+databricks_token: ""
+
+# --- SQL Warehouse ---
+sql_warehouse_id: "<your-warehouse-id>"
+
+# --- Dashboard ---
+dashboard_parent_path: "/Users/<your-email@databricks.com>"
+
+# --- Endpoint Names (customize if desired) ---
+endpoints:
+  claude_opus_4_6: "demo-claude-opus-4-6"
+  gpt_5_2: "demo-gpt-5-2"
+  gemini_3_1_pro: "demo-gemini-3-1-pro"
+  claude_opus_4_5: "demo-claude-opus-4-5"
+  # Optional: A/B test endpoint (created by 03_ab_test_routing.py)
+  ab_test: "demo-claude-ab-test"
+
+# --- Inference Tables ---
+inference_table_catalog: "main"
+inference_table_schema: "fmapi_demo"
+
+# --- MCP Configuration (for Scene 6) ---
+mcp:
+  genie_space_id: "<your-genie-space-id>"
+  uc_catalog: "main"
+  uc_schema: "fmapi_demo"
+  # vector_search_index: "<your-vector-search-index>"
