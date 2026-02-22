@@ -3,7 +3,7 @@
 Scene 2 Setup: Create serving endpoints for all three major model families.
 
 This is the headline differentiator: Claude (Anthropic), GPT (OpenAI), and Gemini (Google)
-all served natively through a single gateway — something neither Bedrock nor Vertex can do.
+all served natively through a single gateway — something neither Bedrock (no OpenAI, no Gemini) nor Vertex (no OpenAI) can match.
 
 Also creates a Claude Opus 4.5 endpoint for the A/B test demo (Scene 4),
 and a ground truth table for the evaluation demo (Scene 4b).

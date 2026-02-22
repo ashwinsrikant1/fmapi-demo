@@ -3,7 +3,7 @@
 Scene 2 Demo: Send identical prompts to all three model families via OpenAI SDK.
 
 The key demo moment: ONE client, ONE SDK, ONE auth — hitting Claude, GPT, and Gemini.
-This is what neither Bedrock (no OpenAI, no Gemini) nor Vertex (no OpenAI) can do.
+This is what neither Bedrock (no OpenAI, no Gemini) nor Vertex (no OpenAI) can match.
 
 Usage:
     python scripts/02_test_requests.py                    # Single prompt, side-by-side

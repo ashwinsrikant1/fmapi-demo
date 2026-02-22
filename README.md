@@ -8,7 +8,7 @@ This demo shows how Databricks Foundation Model API serves all three major model
 
 | Provider | Databricks | AWS Bedrock | GCP Vertex |
 |----------|:----------:|:-----------:|:----------:|
-| Anthropic (Claude) | Yes | Yes | No |
+| Anthropic (Claude) | Yes | Yes | Yes |
 | OpenAI (GPT) | Yes | No | No |
 | Google (Gemini) | Yes | No | Yes |
 

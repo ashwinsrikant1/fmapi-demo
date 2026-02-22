@@ -37,7 +37,7 @@ Databricks Foundation Model API serves all major model families natively:
 
 | Provider | Models | Competitive Differentiator |
 |----------|--------|---------------------------|
-| **Anthropic** | Claude Opus 4.6, Opus 4.5, Sonnet, Haiku | Not on Vertex |
+| **Anthropic** | Claude Opus 4.6, Opus 4.5, Sonnet, Haiku | On Bedrock & Vertex too |
 | **OpenAI** | GPT-5.2, GPT-4.1, o3 | Not on Bedrock, not on Vertex |
 | **Google** | Gemini 3.1 Pro, Gemini 2.5 | Not on Bedrock |
 | **Meta** | Llama 3.3, Llama 4 | Open-source, optimized serving |
@@ -45,7 +45,7 @@ Databricks Foundation Model API serves all major model families natively:
 
 One API (OpenAI-compatible). One SDK. One auth token. One bill.
 
-**Speaker notes:** This is the sharpest differentiator. Bedrock doesn't have OpenAI or Gemini. Vertex doesn't have OpenAI. Only Databricks gives you all three major families through a single gateway. And it's OpenAI-spec compatible, so existing code works with zero changes.
+**Speaker notes:** This is the sharpest differentiator. Bedrock has Claude but not OpenAI or Gemini. Vertex has Claude and Gemini but not OpenAI. Only Databricks gives you all three major families through a single gateway. And it's OpenAI-spec compatible, so existing code works with zero changes.
 
 ---
 
