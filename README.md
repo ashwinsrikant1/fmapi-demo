@@ -14,6 +14,10 @@ This demo shows how Databricks Foundation Model API serves all three major model
 
 Only Databricks gives you all three.
 
+## Slide Deck
+
+[Foundation Model API: One Gateway, Every Model](https://docs.google.com/presentation/d/1agXBkKL9s6_C1rI6IfhofpRa6stlFcgrOCW_Z8GLHdM/edit) — 8-slide Databricks-branded presentation with speaker notes.
+
 ## Prerequisites
 
 - UC-enabled Databricks workspace (tested on `fevm-demo-classic` and `e2-demo-field-eng`)
