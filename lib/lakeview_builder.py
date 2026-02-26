@@ -394,6 +394,9 @@ class LakeviewDashboard:
         if value_agg == "COUNT":
             value_name = "count(*)"
             value_expr = "COUNT(`*`)"
+        elif value_agg == "COUNT_DISTINCT":
+            value_name = f"count_distinct({value_field})"
+            value_expr = f"COUNT(DISTINCT `{value_field}`)"
         else:
             value_name = f"{value_agg.lower()}({value_field})"
             value_expr = f"{value_agg}(`{value_field}`)"
@@ -407,7 +410,7 @@ class LakeviewDashboard:
                     "fields": [
                         self._create_field(value_name, value_expr)
                     ],
-                    "disaggregated": True
+                    "disaggregated": False
                 }
             }],
             "spec": {
@@ -655,7 +658,7 @@ class LakeviewDashboard:
 
     def add_date_filter(
         self,
-        dataset_name: str,
+        dataset_name,
         field: str,
         title: Optional[str] = None,
         position: Optional[Dict[str, int]] = None
@@ -663,8 +666,9 @@ class LakeviewDashboard:
         """Add a date range picker filter widget.
 
         Args:
-            dataset_name: Name of the dataset to use
-            field: Date field to filter on
+            dataset_name: Single dataset name (str) or list of
+                (dataset_name, field_name) tuples for a global filter
+            field: Date field to filter on (used when dataset_name is a str)
             title: Filter title
             position: Position dict
 
@@ -672,30 +676,42 @@ class LakeviewDashboard:
             The widget ID
         """
         widget_id = self._generate_id()
-        query_name = f"filter_{widget_id}_{field}"
 
-        widget = {
-            "name": widget_id,
-            "queries": [{
+        # Normalize to list of (dataset, field) pairs
+        if isinstance(dataset_name, str):
+            pairs = [(dataset_name, field)]
+        else:
+            pairs = dataset_name
+
+        queries = []
+        field_encodings = []
+        for ds, fld in pairs:
+            query_name = f"filter_{widget_id}_{ds}_{fld}"
+            queries.append({
                 "name": query_name,
                 "query": {
-                    "datasetName": dataset_name,
+                    "datasetName": ds,
                     "fields": [
-                        self._create_field(field, f"`{field}`"),
-                        self._create_field(f"{field}_associativity", 'COUNT_IF(`associative_filter_predicate_group`)')
+                        self._create_field(fld, f"`{fld}`"),
+                        self._create_field(f"{fld}_associativity", 'COUNT_IF(`associative_filter_predicate_group`)')
                     ],
                     "disaggregated": False
                 }
-            }],
+            })
+            field_encodings.append({
+                "fieldName": fld,
+                "displayName": fld,
+                "queryName": query_name
+            })
+
+        widget = {
+            "name": widget_id,
+            "queries": queries,
             "spec": {
                 "version": 2,
                 "widgetType": "filter-date-range-picker",
                 "encodings": {
-                    "fields": [{
-                        "fieldName": field,
-                        "displayName": field,
-                        "queryName": query_name
-                    }]
+                    "fields": field_encodings
                 },
                 "frame": {
                     "showTitle": title is not None,

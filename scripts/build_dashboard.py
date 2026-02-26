@@ -66,13 +66,13 @@ def build_dashboard() -> dict:
             "    usage_date as request_date,\n"
             "    usage_metadata.endpoint_name as endpoint_name,\n"
             "    CASE\n"
-            "        WHEN sku_name LIKE '%ANTHROPIC%' THEN 'Anthropic'\n"
-            "        WHEN sku_name LIKE '%OPENAI%' THEN 'OpenAI'\n"
-            "        WHEN sku_name LIKE '%GOOGLE%' THEN 'Google'\n"
-            "        WHEN sku_name LIKE '%META%' OR sku_name LIKE '%LLAMA%' THEN 'Meta'\n"
+            "        WHEN u.sku_name LIKE '%ANTHROPIC%' THEN 'Anthropic'\n"
+            "        WHEN u.sku_name LIKE '%OPENAI%' THEN 'OpenAI'\n"
+            "        WHEN u.sku_name LIKE '%GOOGLE%' THEN 'Google'\n"
+            "        WHEN u.sku_name LIKE '%META%' OR u.sku_name LIKE '%LLAMA%' THEN 'Meta'\n"
             "        ELSE 'Other'\n"
             "    END as provider,\n"
-            "    sku_name,\n"
+            "    u.sku_name,\n"
             "    SUM(usage_quantity) as total_dbus,\n"
             "    SUM(usage_quantity * COALESCE(lp.pricing.effective_list.default, 0.07)) as estimated_cost\n"
             "FROM system.billing.usage u\n"
@@ -83,7 +83,7 @@ def build_dashboard() -> dict:
             "    AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)\n"
             "WHERE u.sku_name LIKE '%MODEL_SERVING%'\n"
             "   OR u.sku_name LIKE '%FOUNDATION_MODEL%'\n"
-            "GROUP BY usage_date, usage_metadata.endpoint_name, sku_name"
+            "GROUP BY usage_date, usage_metadata.endpoint_name, u.sku_name"
         ),
     )
 
@@ -93,22 +93,22 @@ def build_dashboard() -> dict:
         "AI Gateway Usage",
         (
             "SELECT\n"
-            "    request_time,\n"
-            "    DATE(request_time) as request_date,\n"
+            "    event_time,\n"
+            "    DATE(event_time) as request_date,\n"
             "    endpoint_name,\n"
-            "    model_name,\n"
+            "    destination_model as model_name,\n"
             "    CASE\n"
-            "        WHEN LOWER(model_name) LIKE '%claude%' THEN 'Anthropic'\n"
-            "        WHEN LOWER(model_name) LIKE '%gpt%' THEN 'OpenAI'\n"
-            "        WHEN LOWER(model_name) LIKE '%gemini%' THEN 'Google'\n"
-            "        WHEN LOWER(model_name) LIKE '%llama%' THEN 'Meta'\n"
+            "        WHEN LOWER(destination_model) LIKE '%claude%' THEN 'Anthropic'\n"
+            "        WHEN LOWER(destination_model) LIKE '%gpt%' THEN 'OpenAI'\n"
+            "        WHEN LOWER(destination_model) LIKE '%gemini%' THEN 'Google'\n"
+            "        WHEN LOWER(destination_model) LIKE '%llama%' THEN 'Meta'\n"
             "        ELSE 'Other'\n"
             "    END as provider,\n"
-            "    input_token_count,\n"
-            "    output_token_count,\n"
-            "    total_token_count,\n"
-            "    request_latency_ms,\n"
-            "    time_to_first_token_ms,\n"
+            "    input_tokens as input_token_count,\n"
+            "    output_tokens as output_token_count,\n"
+            "    total_tokens as total_token_count,\n"
+            "    latency_ms as request_latency_ms,\n"
+            "    time_to_first_byte_ms as time_to_first_token_ms,\n"
             "    status_code,\n"
             "    CASE WHEN status_code = 200 THEN 'Success' ELSE 'Error' END as status,\n"
             "    requester,\n"
@@ -123,15 +123,15 @@ def build_dashboard() -> dict:
         "Routing & A/B Tests",
         (
             "SELECT\n"
-            "    request_time,\n"
-            "    DATE(request_time) as request_date,\n"
+            "    event_time,\n"
+            "    DATE(event_time) as request_date,\n"
             "    endpoint_name,\n"
-            "    model_name,\n"
+            "    destination_model as model_name,\n"
             "    routing_information,\n"
-            "    routing_information.served_model_name as routed_to,\n"
-            "    input_token_count,\n"
-            "    output_token_count,\n"
-            "    request_latency_ms,\n"
+            "    routing_information.attempts[0].destination as routed_to,\n"
+            "    input_tokens as input_token_count,\n"
+            "    output_tokens as output_token_count,\n"
+            "    latency_ms as request_latency_ms,\n"
             "    status_code,\n"
             "    requester\n"
             "FROM system.ai_gateway.usage\n"
@@ -145,9 +145,15 @@ def build_dashboard() -> dict:
     # (Default page already created as "Overview" — rename it)
     dashboard.pages[0]["displayName"] = "Gateway Overview"
 
-    # Filters row
+    # Global date filter — spans all four datasets
     dashboard.add_date_filter(
-        "all_model_usage", "request_date", "Date Range",
+        [
+            ("all_model_usage", "request_date"),
+            ("all_model_billing", "request_date"),
+            ("ai_gateway_usage", "request_date"),
+            ("routing_data", "request_date"),
+        ],
+        "request_date", "Date Range",
         position={"x": 0, "y": 0, "width": 2, "height": 1},
     )
     dashboard.add_filter_dropdown(
@@ -175,11 +181,11 @@ def build_dashboard() -> dict:
         position={"x": 2, "y": 1, "width": 1, "height": 2},
     )
     dashboard.add_counter(
-        "all_model_usage", "requester", "COUNT", "Unique Users",
+        "all_model_usage", "requester", "COUNT_DISTINCT", "Unique Users",
         position={"x": 3, "y": 1, "width": 1, "height": 2},
     )
     dashboard.add_counter(
-        "all_model_usage", "endpoint_name", "COUNT", "Active Endpoints",
+        "all_model_usage", "endpoint_name", "COUNT_DISTINCT", "Active Endpoints",
         position={"x": 4, "y": 1, "width": 1, "height": 2},
     )
     dashboard.add_counter(
@@ -250,19 +256,15 @@ def build_dashboard() -> dict:
     # =========================================================================
     dashboard.add_page("AI Gateway & Performance")
 
-    # Filters
-    dashboard.add_date_filter(
-        "ai_gateway_usage", "request_date", "Date Range",
-        position={"x": 0, "y": 0, "width": 2, "height": 1},
-    )
+    # Filters (date range is global from Page 1)
     dashboard.add_filter_dropdown(
         "ai_gateway_usage", "provider", "Provider",
-        position={"x": 2, "y": 0, "width": 1, "height": 1},
+        position={"x": 0, "y": 0, "width": 2, "height": 1},
         multi_select=True,
     )
     dashboard.add_filter_dropdown(
         "ai_gateway_usage", "endpoint_name", "Endpoint",
-        position={"x": 3, "y": 0, "width": 2, "height": 1},
+        position={"x": 2, "y": 0, "width": 2, "height": 1},
         multi_select=True,
     )
 
@@ -320,14 +322,10 @@ def build_dashboard() -> dict:
     # =========================================================================
     dashboard.add_page("Routing & A/B Tests")
 
-    # Filters
-    dashboard.add_date_filter(
-        "routing_data", "request_date", "Date Range",
-        position={"x": 0, "y": 0, "width": 2, "height": 1},
-    )
+    # Filters (date range is global from Page 1)
     dashboard.add_filter_dropdown(
         "routing_data", "endpoint_name", "Endpoint",
-        position={"x": 2, "y": 0, "width": 2, "height": 1},
+        position={"x": 0, "y": 0, "width": 2, "height": 1},
         multi_select=True,
     )
 
@@ -358,7 +356,7 @@ def build_dashboard() -> dict:
     dashboard.add_table(
         "routing_data",
         columns=[
-            {"field": "request_time", "title": "Time", "type": "datetime"},
+            {"field": "event_time", "title": "Time", "type": "datetime"},
             {"field": "endpoint_name", "title": "Endpoint"},
             {"field": "routed_to", "title": "Routed To"},
             {"field": "model_name", "title": "Model"},
