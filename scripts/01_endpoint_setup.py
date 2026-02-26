@@ -53,6 +53,7 @@ def create_endpoint(
         client.serving_endpoints.create(
             name=endpoint_name,
             config=EndpointCoreConfigInput(
+                name=endpoint_name,
                 served_entities=[
                     ServedEntityInput(
                         entity_name=entity_name,

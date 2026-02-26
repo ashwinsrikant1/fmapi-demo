@@ -23,7 +23,7 @@ from databricks.sdk.service.serving import (
     Route,
     AiGatewayConfig,
     AiGatewayInferenceTableConfig,
-    AiGatewayFallbackConfig,
+    FallbackConfig,
 )
 from tabulate import tabulate
 
@@ -54,14 +54,16 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
             name=endpoint_name,
             served_entities=[
                 ServedEntityInput(
-                    entity_name="databricks-claude-opus-4-6",
+                    entity_name="system.ai.databricks-claude-opus-4-6",
                     entity_version="1",
                     name="claude-opus-4-6",
+                    workload_size="Small",
                 ),
                 ServedEntityInput(
-                    entity_name="databricks-claude-opus-4-5",
+                    entity_name="system.ai.databricks-claude-opus-4-5",
                     entity_version="1",
                     name="claude-opus-4-5",
+                    workload_size="Small",
                 ),
             ],
             traffic_config=TrafficConfig(
@@ -82,16 +84,19 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
         client.serving_endpoints.create(
             name=endpoint_name,
             config=EndpointCoreConfigInput(
+                name=endpoint_name,
                 served_entities=[
                     ServedEntityInput(
-                        entity_name="databricks-claude-opus-4-6",
+                        entity_name="system.ai.databricks-claude-opus-4-6",
                         entity_version="1",
                         name="claude-opus-4-6",
+                        workload_size="Small",
                     ),
                     ServedEntityInput(
-                        entity_name="databricks-claude-opus-4-5",
+                        entity_name="system.ai.databricks-claude-opus-4-5",
                         entity_version="1",
                         name="claude-opus-4-5",
+                        workload_size="Small",
                     ),
                 ],
                 traffic_config=TrafficConfig(
@@ -113,7 +118,7 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
                     schema_name=schema,
                     enabled=True,
                 ),
-                fallback_config=AiGatewayFallbackConfig(enabled=True),
+                # fallback_config not supported for foundation model endpoints
             ),
         )
 

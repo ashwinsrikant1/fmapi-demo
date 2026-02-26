@@ -63,8 +63,9 @@ def deploy_dashboard(profile: str, warehouse_id: str, parent_path: str, dashboar
     profile_cmd = f"databricks auth env --profile={profile}"
     profile_result = subprocess.run(profile_cmd, shell=True, capture_output=True, text=True)
     for line in profile_result.stdout.split("\n"):
-        if "DATABRICKS_HOST" in line:
-            host = line.split("=")[1].strip().strip('"')
+        if "DATABRICKS_HOST" in line and "=" in line:
+            # Format is: export DATABRICKS_HOST=https://...  or DATABRICKS_HOST="https://..."
+            host = line.split("=", 1)[1].strip().strip('"').strip("'")
             break
 
     print(f"Dashboard created!")

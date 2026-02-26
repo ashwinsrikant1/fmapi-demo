@@ -65,9 +65,15 @@ def send_request(client: OpenAI, endpoint_name: str, prompt: str) -> dict:
             temperature=0.7,
         )
         elapsed = time.time() - start
+        content = response.choices[0].message.content
+        if isinstance(content, list):
+            content = " ".join(
+                c.get("text", "") if isinstance(c, dict) else str(c)
+                for c in content
+            )
         return {
             "endpoint": endpoint_name,
-            "response": response.choices[0].message.content.strip(),
+            "response": content.strip(),
             "tokens_in": response.usage.prompt_tokens,
             "tokens_out": response.usage.completion_tokens,
             "latency_s": round(elapsed, 2),
