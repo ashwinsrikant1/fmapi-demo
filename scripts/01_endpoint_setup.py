@@ -58,6 +58,7 @@ def create_endpoint(
                     ServedEntityInput(
                         entity_name=entity_name,
                         entity_version="1",
+                        workload_size="Small"
                     )
                 ],
             ),
