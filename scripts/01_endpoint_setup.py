@@ -16,14 +16,19 @@ Usage:
 import argparse
 import sys
 import time
+from pathlib import Path
 import yaml
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import (
-    EndpointCoreConfigInput,
-    ServedEntityInput,
     AiGatewayConfig,
     AiGatewayInferenceTableConfig,
+    EndpointCoreConfigInput,
+    EndpointStateReady,
+    ServedEntityInput,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from uc_model_version import resolve_latest_ready_model_version
 
 
 def load_config(config_path: str) -> dict:
@@ -45,11 +50,15 @@ def create_endpoint(
     try:
         existing = client.serving_endpoints.get(endpoint_name)
         print(f"  Endpoint '{endpoint_name}' already exists (state: {existing.state.ready})")
-        if str(existing.state.ready) == "READY":
+        if existing.state.ready == EndpointStateReady.READY:
             return existing
         print(f"  Waiting for existing endpoint to become READY...")
     except Exception:
-        print(f"  Creating endpoint '{endpoint_name}' with entity '{entity_name}'...")
+        entity_version = resolve_latest_ready_model_version(client, entity_name)
+        print(
+            f"  Creating endpoint '{endpoint_name}' with entity '{entity_name}' "
+            f"(UC version {entity_version})..."
+        )
         client.serving_endpoints.create(
             name=endpoint_name,
             config=EndpointCoreConfigInput(
@@ -57,7 +66,7 @@ def create_endpoint(
                 served_entities=[
                     ServedEntityInput(
                         entity_name=entity_name,
-                        entity_version="1",
+                        entity_version=entity_version,
                         workload_size="Small"
                     )
                 ],
@@ -75,17 +84,17 @@ def create_endpoint(
     start = time.time()
     while time.time() - start < timeout_minutes * 60:
         ep = client.serving_endpoints.get(endpoint_name)
-        state = str(ep.state.ready)
-        if state == "READY":
+        ready = ep.state.ready
+        if ready == EndpointStateReady.READY:
             print(f"  Endpoint '{endpoint_name}' is READY")
             return ep
-        elif state == "NOT_READY":
+        if ready == EndpointStateReady.NOT_READY:
             config_state = str(ep.state.config_update) if ep.state.config_update else "PENDING"
             print(f"  Waiting... (config: {config_state})")
             time.sleep(30)
-        else:
-            print(f"  Unexpected state: {state}")
-            time.sleep(15)
+            continue
+        print(f"  Unexpected state: {ready!r}")
+        time.sleep(15)
 
     print(f"  TIMEOUT: Endpoint '{endpoint_name}' did not reach READY in {timeout_minutes} min")
     sys.exit(1)
@@ -169,10 +178,11 @@ def main():
     print("Creating endpoints for all three major model families")
     print("=" * 60)
 
+    # UC requires catalog.schema.model (foundation models live under system.ai)
     headline_endpoints = [
-        (endpoints_cfg["claude_opus_4_6"], "databricks-claude-opus-4-6"),
-        (endpoints_cfg["gpt_5_2"], "databricks-gpt-5-2"),
-        (endpoints_cfg["gemini_3_1_pro"], "databricks-gemini-3-1-pro"),
+        (endpoints_cfg["claude_opus_4_6"], "system.ai.databricks-claude-opus-4-6"),
+        (endpoints_cfg["gpt_5_2"], "system.ai.databricks-gpt-5-2"),
+        (endpoints_cfg["gemini_3_1_pro"], "system.ai.databricks-gemini-3-1-pro"),
     ]
 
     for ep_name, entity_name in headline_endpoints:
@@ -185,11 +195,11 @@ def main():
     print("Creating Claude Opus 4.5 for side-by-side comparison")
     print("=" * 60)
 
-    print(f"\n[databricks-claude-opus-4-5]")
+    print(f"\n[system.ai.databricks-claude-opus-4-5]")
     create_endpoint(
         client,
         endpoints_cfg["claude_opus_4_5"],
-        "databricks-claude-opus-4-5",
+        "system.ai.databricks-claude-opus-4-5",
         catalog,
         schema,
     )
@@ -203,7 +213,7 @@ def main():
     print(f"\nEndpoints created:")
     for ep_name, entity_name in headline_endpoints:
         print(f"  - {ep_name} ({entity_name})")
-    print(f"  - {endpoints_cfg['claude_opus_4_5']} (databricks-claude-opus-4-5)")
+    print(f"  - {endpoints_cfg['claude_opus_4_5']} (system.ai.databricks-claude-opus-4-5)")
     print(f"\nGround truth table: {catalog}.{schema}.evaluation_ground_truth")
     print(f"\nNext step: python scripts/02_test_requests.py")
 

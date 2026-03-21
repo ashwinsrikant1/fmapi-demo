@@ -11,7 +11,9 @@ Usage:
 """
 
 import argparse
+import sys
 import time
+from pathlib import Path
 import yaml
 from collections import Counter
 from openai import OpenAI
@@ -27,6 +29,9 @@ from databricks.sdk.service.serving import (
 )
 from tabulate import tabulate
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from uc_model_version import resolve_latest_ready_model_version
+
 
 def load_config(config_path: str) -> dict:
     with open(config_path) as f:
@@ -38,6 +43,11 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
     endpoint_name = config["endpoints"]["ab_test"]
     catalog = config["inference_table_catalog"]
     schema = config["inference_table_schema"]
+
+    opus_46 = "system.ai.databricks-claude-opus-4-6"
+    opus_45 = "system.ai.databricks-claude-opus-4-5"
+    ver_46 = resolve_latest_ready_model_version(client, opus_46)
+    ver_45 = resolve_latest_ready_model_version(client, opus_45)
 
     print("=" * 60)
     print("SCENE 4: A/B Test Routing")
@@ -54,14 +64,14 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
             name=endpoint_name,
             served_entities=[
                 ServedEntityInput(
-                    entity_name="system.ai.databricks-claude-opus-4-6",
-                    entity_version="1",
+                    entity_name=opus_46,
+                    entity_version=ver_46,
                     name="claude-opus-4-6",
                     workload_size="Small",
                 ),
                 ServedEntityInput(
-                    entity_name="system.ai.databricks-claude-opus-4-5",
-                    entity_version="1",
+                    entity_name=opus_45,
+                    entity_version=ver_45,
                     name="claude-opus-4-5",
                     workload_size="Small",
                 ),
@@ -87,14 +97,14 @@ def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
                 name=endpoint_name,
                 served_entities=[
                     ServedEntityInput(
-                        entity_name="system.ai.databricks-claude-opus-4-6",
-                        entity_version="1",
+                        entity_name=opus_46,
+                        entity_version=ver_46,
                         name="claude-opus-4-6",
                         workload_size="Small",
                     ),
                     ServedEntityInput(
-                        entity_name="system.ai.databricks-claude-opus-4-5",
-                        entity_version="1",
+                        entity_name=opus_45,
+                        entity_version=ver_45,
                         name="claude-opus-4-5",
                         workload_size="Small",
                     ),
