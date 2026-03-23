@@ -3,7 +3,10 @@
 Scene 4 Demo: A/B test routing between Claude Opus 4.5 and Opus 4.6.
 
 Real-world scenario: "Opus 4.6 just dropped — run it side-by-side with Opus 4.5,
-compare quality, then pick the winner." Traffic split 70/30, with fallback enabled.
+compare quality, then pick the winner." Traffic split 70/30.
+
+Uses an external model gateway endpoint that routes to existing pay-per-token
+foundation model endpoints — no GPU provisioning required, instant deployment.
 
 Usage:
     python scripts/03_ab_test_routing.py
@@ -11,26 +14,14 @@ Usage:
 """
 
 import argparse
+import json
+import subprocess
 import sys
 import time
-from pathlib import Path
 import yaml
 from collections import Counter
 from openai import OpenAI
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.serving import (
-    EndpointCoreConfigInput,
-    ServedEntityInput,
-    TrafficConfig,
-    Route,
-    AiGatewayConfig,
-    AiGatewayInferenceTableConfig,
-    FallbackConfig,
-)
 from tabulate import tabulate
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
-from uc_model_version import resolve_latest_ready_model_version
 
 
 def load_config(config_path: str) -> dict:
@@ -38,119 +29,160 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def create_ab_test_endpoint(client: WorkspaceClient, config: dict):
-    """Create an endpoint with two served entities and traffic splitting."""
+def get_fresh_token(profile: str) -> str:
+    """Get a fresh OAuth token from the Databricks CLI."""
+    result = subprocess.run(
+        ["databricks", "auth", "token", "--profile", profile],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"Error getting token: {result.stderr}")
+        sys.exit(1)
+    return json.loads(result.stdout)["access_token"]
+
+
+def run_databricks_api(method: str, path: str, profile: str, payload: dict | None = None) -> dict:
+    """Call the Databricks REST API via the CLI."""
+    cmd = f"databricks api {method} {path} --profile={profile}"
+    if payload:
+        payload_file = "/tmp/fmapi_ab_payload.json"
+        with open(payload_file, "w") as f:
+            json.dump(payload, f)
+        cmd += f" --json @{payload_file}"
+
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        return {"error": result.stderr}
+
+    stdout = result.stdout
+    json_start = stdout.find("{")
+    if json_start > 0:
+        stdout = stdout[json_start:]
+    return json.loads(stdout) if stdout.strip() else {}
+
+
+def create_ab_test_endpoint(config: dict):
+    """Create a gateway endpoint that routes to existing foundation model endpoints."""
     endpoint_name = config["endpoints"]["ab_test"]
     catalog = config["inference_table_catalog"]
     schema = config["inference_table_schema"]
+    profile = config["databricks_cli_profile"]
+    workspace_host = config["workspace_host"]
 
-    opus_46 = "system.ai.databricks-claude-opus-4-6"
-    opus_45 = "system.ai.databricks-claude-opus-4-5"
-    ver_46 = resolve_latest_ready_model_version(client, opus_46)
-    ver_45 = resolve_latest_ready_model_version(client, opus_45)
+    opus_46_endpoint = config["endpoints"]["claude_opus_4_6"]
+    opus_45_endpoint = config["endpoints"]["claude_opus_4_5"]
 
     print("=" * 60)
     print("SCENE 4: A/B Test Routing")
     print(f"Endpoint: {endpoint_name}")
-    print("Traffic split: 70% Opus 4.6, 30% Opus 4.5")
-    print("Fallback: enabled")
+    print(f"  Route A (70%): {opus_46_endpoint}")
+    print(f"  Route B (30%): {opus_45_endpoint}")
     print("=" * 60)
 
-    # Check if exists
-    try:
-        existing = client.serving_endpoints.get(endpoint_name)
+    # Store a fresh token as a Databricks secret for the gateway to authenticate
+    # to backend endpoints. Secret references are more reliable than plaintext tokens.
+    secret_scope = "fmapi"
+    secret_key = "api_token"
+    token = get_fresh_token(profile)
+
+    print(f"\nStoring fresh token in secret scope '{secret_scope}'...")
+    store_cmd = f'databricks secrets put-secret {secret_scope} {secret_key} --string-value "{token}" --profile={profile}'
+    result = subprocess.run(store_cmd, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        # Create scope if it doesn't exist, then retry
+        subprocess.run(
+            f"databricks secrets create-scope {secret_scope} --profile={profile}",
+            shell=True, capture_output=True, text=True,
+        )
+        subprocess.run(store_cmd, shell=True, capture_output=True, text=True)
+
+    secret_ref = f"{{{{secrets/{secret_scope}/{secret_key}}}}}"
+
+    def build_served_entities():
+        return [
+            {
+                "name": "claude-opus-4-6",
+                "external_model": {
+                    "name": opus_46_endpoint,
+                    "provider": "databricks-model-serving",
+                    "task": "llm/v1/chat",
+                    "databricks_model_serving_config": {
+                        "databricks_workspace_url": workspace_host,
+                        "databricks_api_token": secret_ref,
+                    },
+                },
+            },
+            {
+                "name": "claude-opus-4-5",
+                "external_model": {
+                    "name": opus_45_endpoint,
+                    "provider": "databricks-model-serving",
+                    "task": "llm/v1/chat",
+                    "databricks_model_serving_config": {
+                        "databricks_workspace_url": workspace_host,
+                        "databricks_api_token": secret_ref,
+                    },
+                },
+            },
+        ]
+
+    traffic_config = {
+        "routes": [
+            {"served_model_name": "claude-opus-4-6", "traffic_percentage": 70},
+            {"served_model_name": "claude-opus-4-5", "traffic_percentage": 30},
+        ]
+    }
+
+    # Check if endpoint already exists
+    existing = run_databricks_api("get", f"/api/2.0/serving-endpoints/{endpoint_name}", profile)
+
+    if "error" not in existing:
         print(f"\nEndpoint '{endpoint_name}' exists — updating config...")
-        client.serving_endpoints.update_config(
-            name=endpoint_name,
-            served_entities=[
-                ServedEntityInput(
-                    entity_name=opus_46,
-                    entity_version=ver_46,
-                    name="claude-opus-4-6",
-                    workload_size="Small",
-                ),
-                ServedEntityInput(
-                    entity_name=opus_45,
-                    entity_version=ver_45,
-                    name="claude-opus-4-5",
-                    workload_size="Small",
-                ),
-            ],
-            traffic_config=TrafficConfig(
-                routes=[
-                    Route(
-                        served_model_name="claude-opus-4-6",
-                        traffic_percentage=70,
-                    ),
-                    Route(
-                        served_model_name="claude-opus-4-5",
-                        traffic_percentage=30,
-                    ),
-                ]
-            ),
+        payload = {
+            "served_entities": build_served_entities(),
+            "traffic_config": traffic_config,
+        }
+        result = run_databricks_api(
+            "put", f"/api/2.0/serving-endpoints/{endpoint_name}/config", profile, payload
         )
-    except Exception:
+    else:
         print(f"\nCreating new A/B test endpoint...")
-        client.serving_endpoints.create(
-            name=endpoint_name,
-            config=EndpointCoreConfigInput(
-                name=endpoint_name,
-                served_entities=[
-                    ServedEntityInput(
-                        entity_name=opus_46,
-                        entity_version=ver_46,
-                        name="claude-opus-4-6",
-                        workload_size="Small",
-                    ),
-                    ServedEntityInput(
-                        entity_name=opus_45,
-                        entity_version=ver_45,
-                        name="claude-opus-4-5",
-                        workload_size="Small",
-                    ),
-                ],
-                traffic_config=TrafficConfig(
-                    routes=[
-                        Route(
-                            served_model_name="claude-opus-4-6",
-                            traffic_percentage=70,
-                        ),
-                        Route(
-                            served_model_name="claude-opus-4-5",
-                            traffic_percentage=30,
-                        ),
-                    ]
-                ),
-            ),
-            ai_gateway=AiGatewayConfig(
-                inference_table_config=AiGatewayInferenceTableConfig(
-                    catalog_name=catalog,
-                    schema_name=schema,
-                    enabled=True,
-                ),
-                # fallback_config not supported for foundation model endpoints
-            ),
-        )
+        payload = {
+            "name": endpoint_name,
+            "config": {
+                "served_entities": build_served_entities(),
+                "traffic_config": traffic_config,
+            },
+            "ai_gateway": {
+                "inference_table_config": {
+                    "catalog_name": catalog,
+                    "schema_name": schema,
+                    "enabled": True,
+                },
+            },
+        }
+        result = run_databricks_api("post", "/api/2.0/serving-endpoints", profile, payload)
 
-    # Wait for ready
-    print("Waiting for endpoint to be READY...")
-    for _ in range(40):
-        ep = client.serving_endpoints.get(endpoint_name)
-        if str(ep.state.ready) == "READY":
-            print("Endpoint is READY!")
-            return
-        time.sleep(15)
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        sys.exit(1)
 
-    print("WARNING: Endpoint did not reach READY state in time. Continuing anyway.")
+    state = result.get("state", {})
+    print(f"Endpoint state: {state.get('ready', 'unknown')}")
+    if state.get("ready") == "READY":
+        print("Endpoint is READY!")
 
 
 def send_ab_test_requests(config: dict, count: int = 20):
     """Send requests through the A/B endpoint and show routing distribution."""
     endpoint_name = config["endpoints"]["ab_test"]
+    profile = config["databricks_cli_profile"]
 
+    # Use a fresh token for requests
+    token = get_fresh_token(profile)
     client = OpenAI(
         base_url=f"{config['workspace_host']}/serving-endpoints",
-        api_key=config.get("databricks_token") or None,
+        api_key=token,
     )
 
     print(f"\n--- Sending {count} requests through A/B endpoint ---")
@@ -174,11 +206,18 @@ def send_ab_test_requests(config: dict, count: int = 20):
                 max_tokens=100,
             )
             elapsed = time.time() - start
-            # The model field in the response indicates which served entity handled it
             model_used = response.model or "unknown"
+            # Simplify model name for display
+            if "opus-4-6" in model_used:
+                display_name = "Opus 4.6"
+            elif "opus-4-5" in model_used:
+                display_name = "Opus 4.5"
+            else:
+                display_name = model_used
+
             results.append({
                 "request": i + 1,
-                "model": model_used,
+                "model": display_name,
                 "latency": round(elapsed, 2),
                 "tokens": response.usage.completion_tokens,
             })
@@ -203,6 +242,8 @@ def send_ab_test_requests(config: dict, count: int = 20):
     # Show latency comparison
     print(f"\n--- Latency by Model ---")
     for model in model_counts:
+        if model == "ERROR":
+            continue
         latencies = [r["latency"] for r in results if r["model"] == model]
         if latencies:
             avg = sum(latencies) / len(latencies)
@@ -223,12 +264,7 @@ def main():
     config = load_config(args.config)
 
     if not args.skip_create:
-        sdk_client = WorkspaceClient(
-            host=config["workspace_host"],
-            profile=config.get("databricks_cli_profile"),
-            token=config.get("databricks_token") or None,
-        )
-        create_ab_test_endpoint(sdk_client, config)
+        create_ab_test_endpoint(config)
 
     send_ab_test_requests(config, args.count)
 

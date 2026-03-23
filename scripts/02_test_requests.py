@@ -12,6 +12,9 @@ Usage:
 """
 
 import argparse
+import json
+import subprocess
+import sys
 import time
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -170,10 +173,24 @@ def main():
 
     config = load_config(args.config)
 
+    # Get a fresh token via CLI profile (falls back to config token if profile unavailable)
+    token = config.get("databricks_token") or None
+    profile = config.get("databricks_cli_profile")
+    if profile:
+        try:
+            result = subprocess.run(
+                ["databricks", "auth", "token", "--profile", profile],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                token = json.loads(result.stdout)["access_token"]
+        except Exception:
+            pass
+
     # ONE client for ALL models — this is the demo moment
     client = OpenAI(
         base_url=f"{config['workspace_host']}/serving-endpoints",
-        api_key=config.get("databricks_token") or None,
+        api_key=token,
     )
 
     endpoints_cfg = config["endpoints"]

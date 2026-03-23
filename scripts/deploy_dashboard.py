@@ -42,8 +42,33 @@ def deploy_dashboard(profile: str, warehouse_id: str, parent_path: str, dashboar
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
     if result.returncode != 0:
-        print(f"Error creating dashboard: {result.stderr}")
-        sys.exit(1)
+        if "already exists" in result.stderr:
+            # Find existing dashboard via workspace get-status (avoids paginated list API)
+            print("Dashboard already exists — finding and updating...")
+            dashboard_ws_path = f"{parent_path}/{dashboard_name}.lvdash.json"
+            status_cmd = f'databricks workspace get-status "{dashboard_ws_path}" --profile={profile} -o json'
+            status_result = subprocess.run(status_cmd, shell=True, capture_output=True, text=True)
+            if status_result.returncode != 0:
+                print(f"Error finding existing dashboard: {status_result.stderr}")
+                sys.exit(1)
+            status_stdout = status_result.stdout
+            json_start = status_stdout.find("{")
+            if json_start > 0:
+                status_stdout = status_stdout[json_start:]
+            existing_id = json.loads(status_stdout).get("resource_id")
+            if not existing_id:
+                print("Error: Could not find existing dashboard resource_id")
+                sys.exit(1)
+
+            print(f"  Found existing dashboard: {existing_id}")
+            update_cmd = f"databricks api patch /api/2.0/lakeview/dashboards/{existing_id} --profile={profile} --json @{payload_file}"
+            result = subprocess.run(update_cmd, shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Error updating dashboard: {result.stderr}")
+                sys.exit(1)
+        else:
+            print(f"Error creating dashboard: {result.stderr}")
+            sys.exit(1)
 
     # Parse response (strip any ANSI warnings before JSON)
     stdout = result.stdout
