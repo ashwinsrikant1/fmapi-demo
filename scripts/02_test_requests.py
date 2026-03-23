@@ -64,7 +64,7 @@ def send_request(client: OpenAI, endpoint_name: str, prompt: str) -> dict:
         response = client.chat.completions.create(
             model=endpoint_name,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            max_tokens=2048,
             temperature=0.7,
         )
         elapsed = time.time() - start
