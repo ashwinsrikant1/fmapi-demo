@@ -14,14 +14,21 @@ Usage:
 """
 
 import argparse
-import json
-import subprocess
 import sys
 import time
 from pathlib import Path
 import yaml
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.serving import EndpointStateReady
+from databricks.sdk.service.serving import (
+    AiGatewayConfig,
+    AiGatewayInferenceTableConfig,
+    EndpointCoreConfigInput,
+    EndpointStateReady,
+    ServedEntityInput,
+)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from uc_model_version import resolve_latest_ready_model_version
 
 
 def load_config(config_path: str) -> dict:
@@ -29,48 +36,15 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def get_fresh_token(profile: str) -> str:
-    """Get a fresh OAuth token from the Databricks CLI."""
-    result = subprocess.run(
-        ["databricks", "auth", "token", "--profile", profile],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error getting token: {result.stderr}")
-        sys.exit(1)
-    return json.loads(result.stdout)["access_token"]
-
-
-def run_databricks_api(method: str, path: str, profile: str, payload: dict | None = None) -> dict:
-    """Call the Databricks REST API via the CLI."""
-    cmd = f"databricks api {method} {path} --profile={profile}"
-    if payload:
-        payload_file = "/tmp/fmapi_endpoint_payload.json"
-        with open(payload_file, "w") as f:
-            json.dump(payload, f)
-        cmd += f" --json @{payload_file}"
-
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        return {"error": result.stderr}
-
-    stdout = result.stdout
-    json_start = stdout.find("{")
-    if json_start > 0:
-        stdout = stdout[json_start:]
-    return json.loads(stdout) if stdout.strip() else {}
-
-
 def create_endpoint(
     client: WorkspaceClient,
     endpoint_name: str,
-    foundation_model_name: str,
+    entity_name: str,
     catalog: str,
     schema: str,
-    profile: str,
     timeout_minutes: int = 20,
 ):
-    """Create a pay-per-token serving endpoint with AI Gateway and inference tables enabled."""
+    """Create a serving endpoint with AI Gateway and inference tables enabled."""
 
     # Check if endpoint already exists
     try:
@@ -80,37 +54,31 @@ def create_endpoint(
             return existing
         print(f"  Waiting for existing endpoint to become READY...")
     except Exception:
-        print(f"  Creating endpoint '{endpoint_name}' (pay-per-token)...")
-        payload = {
-            "name": endpoint_name,
-            "config": {
-                "served_entities": [
-                    {
-                        "name": endpoint_name,
-                        "external_model": {
-                            "name": foundation_model_name,
-                            "provider": "databricks-model-serving",
-                            "task": "llm/v1/chat",
-                            "databricks_model_serving_config": {
-                                "databricks_workspace_url": client.config.host,
-                                "databricks_api_token_plaintext": get_fresh_token(profile),
-                            },
-                        },
-                    }
+        entity_version = resolve_latest_ready_model_version(client, entity_name)
+        print(
+            f"  Creating endpoint '{endpoint_name}' with entity '{entity_name}' "
+            f"(UC version {entity_version})..."
+        )
+        client.serving_endpoints.create(
+            name=endpoint_name,
+            config=EndpointCoreConfigInput(
+                name=endpoint_name,
+                served_entities=[
+                    ServedEntityInput(
+                        entity_name=entity_name,
+                        entity_version=entity_version,
+                        workload_size="Small"
+                    )
                 ],
-            },
-            "ai_gateway": {
-                "inference_table_config": {
-                    "catalog_name": catalog,
-                    "schema_name": schema,
-                    "enabled": True,
-                },
-            },
-        }
-        result = run_databricks_api("post", "/api/2.0/serving-endpoints", profile, payload)
-        if "error" in result:
-            print(f"  Error: {result['error']}")
-            return None
+            ),
+            ai_gateway=AiGatewayConfig(
+                inference_table_config=AiGatewayInferenceTableConfig(
+                    catalog_name=catalog,
+                    schema_name=schema,
+                    enabled=True,
+                ),
+            ),
+        )
 
     # Wait for READY state
     start = time.time()
@@ -193,8 +161,6 @@ def main():
     global config
     config = load_config(args.config)
 
-    profile = config["databricks_cli_profile"]
-
     # Initialize client
     client = WorkspaceClient(
         host=config["workspace_host"],
@@ -212,16 +178,16 @@ def main():
     print("Creating endpoints for all three major model families")
     print("=" * 60)
 
-    # Foundation model endpoints (pay-per-token, served via external model gateway)
+    # UC requires catalog.schema.model (foundation models live under system.ai)
     headline_endpoints = [
-        (endpoints_cfg["claude_opus_4_6"], "databricks-claude-opus-4-6"),
-        (endpoints_cfg["gpt_5_2"], "databricks-gpt-5-2"),
-        (endpoints_cfg["gemini_3_1_pro"], "databricks-gemini-3-1-pro"),
+        (endpoints_cfg["claude_opus_4_6"], "system.ai.databricks-claude-opus-4-6"),
+        (endpoints_cfg["gpt_5_2"], "system.ai.databricks-gpt-5-2"),
+        (endpoints_cfg["gemini_3_1_pro"], "system.ai.databricks-gemini-3-1-pro"),
     ]
 
-    for ep_name, model_name in headline_endpoints:
-        print(f"\n[{model_name}]")
-        create_endpoint(client, ep_name, model_name, catalog, schema, profile)
+    for ep_name, entity_name in headline_endpoints:
+        print(f"\n[{entity_name}]")
+        create_endpoint(client, ep_name, entity_name, catalog, schema)
 
     # --- Version optionality: Opus 4.5 for A/B test ---
     print("\n" + "=" * 60)
@@ -229,14 +195,13 @@ def main():
     print("Creating Claude Opus 4.5 for side-by-side comparison")
     print("=" * 60)
 
-    print(f"\n[databricks-claude-opus-4-5]")
+    print(f"\n[system.ai.databricks-claude-opus-4-5]")
     create_endpoint(
         client,
         endpoints_cfg["claude_opus_4_5"],
-        "databricks-claude-opus-4-5",
+        "system.ai.databricks-claude-opus-4-5",
         catalog,
         schema,
-        profile,
     )
 
     # --- Ground truth table for evaluation demo ---
@@ -246,9 +211,9 @@ def main():
     print("SETUP COMPLETE")
     print("=" * 60)
     print(f"\nEndpoints created:")
-    for ep_name, model_name in headline_endpoints:
-        print(f"  - {ep_name} ({model_name})")
-    print(f"  - {endpoints_cfg['claude_opus_4_5']} (databricks-claude-opus-4-5)")
+    for ep_name, entity_name in headline_endpoints:
+        print(f"  - {ep_name} ({entity_name})")
+    print(f"  - {endpoints_cfg['claude_opus_4_5']} (system.ai.databricks-claude-opus-4-5)")
     print(f"\nGround truth table: {catalog}.{schema}.evaluation_ground_truth")
     print(f"\nNext step: python scripts/02_test_requests.py")
 
